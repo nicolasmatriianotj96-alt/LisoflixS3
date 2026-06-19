@@ -1,226 +1,224 @@
 const express = require('express');
-const cors = require('cors');
+const mysql = require('mysql2');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { Pool } = require('pg');
+const multer = require('multer');
+const cors = require('cors');
+require('dotenv').config();
 
 const app = express();
-const JWT_SECRET = process.env.JWT_SECRET;
 
-// Conexão com Postgres - Supabase/Neon
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
-
-// Cria tabelas se não existir - roda 1 vez só
-async function criarTabelas() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS usuarios (
-      id SERIAL PRIMARY KEY,
-      usuario TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      senha TEXT NOT NULL,
-      foto_perfil TEXT,
-      criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS filmes (
-      id SERIAL PRIMARY KEY,
-      titulo TEXT NOT NULL,
-      imagem_url TEXT,
-      video_url TEXT,
-      criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS favoritos (
-      id SERIAL PRIMARY KEY,
-      usuario_id INTEGER REFERENCES usuarios(id),
-      filme_id INTEGER REFERENCES filmes(id),
-      UNIQUE(usuario_id, filme_id)
-    );
-  `);
-
-  // Insere filmes iniciais só se tabela tiver vazia
-  const { rows } = await pool.query('SELECT COUNT(*) FROM filmes');
-  if (rows[0].count == 0) {
-    const filmesIniciais = [
-      ['Vingadores: Ultimato', 'https://image.tmdb.org/t/p/w500/or06FN3Dka5tukK1e9sl16pB3iy.jpg', 'https://www.youtube.com/watch?v=TcMBFSGVi1c'],
-      ['John Wick', 'https://image.tmdb.org/t/p/w500/fZPSd91yGE9fCcCe6OoQr6E3Bev.jpg', 'https://www.youtube.com/watch?v=C0BMx-qxsP4'],
-      //... cola o resto dos teus filmes aqui sem o ID
-    ];
-
-    for (const f of filmesIniciais) {
-      await pool.query('INSERT INTO filmes (titulo, imagem_url, video_url) VALUES ($1, $2, $3)', f);
-    }
-  }
-}
-criarTabelas().catch(console.error);
-
-// CORS liberando teu S3
+// CORS LIBERADO PRO S3
 app.use(cors({
   origin: [
+    'http://lisoflix-front.s3-website.us-east-2.amazonaws.com',
     'http://lisoflix-front.s3-website-sa-east-1.amazonaws.com',
     'http://localhost:5500'
-  ]
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Remove upload de foto por enquanto - Vercel não salva arquivo
-// Pra foto funcionar tu vai precisar do Cloudinary/S3. Me fala se quiser que já adapto
+// Multer pra upload em memória
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB
+});
 
-function autenticar(req, res, next) {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    if (!token) return res.status(401).json({ mensagem: 'Token não fornecido' });
+// Conexão MySQL
+const db = mysql.createPool({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  port: process.env.DB_PORT || 3306,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
 
-    jwt.verify(token, JWT_SECRET, (err, usuario) => {
-        if (err) return res.status(403).json({ mensagem: 'Token inválido' });
-        req.usuario = usuario;
-        next();
-    });
+// Middleware JWT
+function autenticarToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ mensagem: 'Token não fornecido' });
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, usuario) => {
+    if (err) return res.status(403).json({ mensagem: 'Token inválido' });
+    req.usuario = usuario;
+    next();
+  });
 }
 
+// Teste
 app.get('/api', (req, res) => {
-    res.json({ status: 'API Lisoflix online' });
+  res.json({ status: 'API Lisoflix online' });
 });
 
+// CADASTRO
 app.post('/api/cadastro', async (req, res) => {
-    const { usuario, email, senha } = req.body;
-    if (!usuario ||!email ||!senha) {
-        return res.status(400).json({ mensagem: 'Preencha todos os campos' });
-    }
+  const { usuario, email, senha } = req.body;
+  if (!usuario ||!email ||!senha) {
+    return res.status(400).json({ mensagem: 'Preencha todos os campos' });
+  }
+  if (senha.length < 8) {
+    return res.status(400).json({ mensagem: 'Senha precisa ter 8+ caracteres' });
+  }
 
-    try {
-        const hash = await bcrypt.hash(senha, 10);
-        const result = await pool.query(
-          'INSERT INTO usuarios (usuario, email, senha) VALUES ($1, $2, $3) RETURNING id, usuario, email',
-          [usuario, email, hash]
-        );
-        res.status(201).json({ mensagem: 'Usuário cadastrado com sucesso', usuario: result.rows[0] });
-    } catch (err) {
-        if (err.code === '23505') {
-            return res.status(400).json({ mensagem: 'Email já cadastrado' });
+  try {
+    const hash = await bcrypt.hash(senha, 10);
+    const sql = 'INSERT INTO usuarios (usuario, email, senha) VALUES (?,?,?)';
+    db.query(sql, [usuario, email, hash], (err, result) => {
+      if (err) {
+        if (err.code === 'ER_DUP_ENTRY') {
+          return res.status(400).json({ mensagem: 'Email já cadastrado' });
         }
-        res.status(500).json({ mensagem: 'Erro ao cadastrar usuário' });
-    }
+        return res.status(500).json({ mensagem: 'Erro ao cadastrar' });
+      }
+      res.status(201).json({ mensagem: 'Usuário cadastrado com sucesso' });
+    });
+  } catch (err) {
+    res.status(500).json({ mensagem: 'Erro interno' });
+  }
 });
 
-app.post('/api/login', async (req, res) => {
-    const { email, senha } = req.body;
-    if (!email ||!senha) {
-        return res.status(400).json({ mensagem: 'Preencha todos os campos' });
-    }
+// LOGIN
+app.post('/api/login', (req, res) => {
+  const { email, senha } = req.body;
+  if (!email ||!senha) {
+    return res.status(400).json({ mensagem: 'Preencha todos os campos' });
+  }
 
-    try {
-        const { rows } = await pool.query('SELECT * FROM usuarios WHERE email = $1', [email]);
-        const user = rows[0];
-        if (!user) return res.status(401).json({ mensagem: 'Email ou senha incorretos' });
+  const sql = 'SELECT * FROM usuarios WHERE email =?';
+  db.query(sql, [email], async (err, results) => {
+    if (err) return res.status(500).json({ mensagem: 'Erro no servidor' });
+    if (results.length === 0) return res.status(401).json({ mensagem: 'Email ou senha incorretos' });
 
-        const senhaValida = await bcrypt.compare(senha, user.senha);
-        if (!senhaValida) return res.status(401).json({ mensagem: 'Email ou senha incorretos' });
+    const user = results[0];
+    const senhaValida = await bcrypt.compare(senha, user.senha);
+    if (!senhaValida) return res.status(401).json({ mensagem: 'Email ou senha incorretos' });
 
-        const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
-        res.json({
-            token,
-            id: user.id,
-            nome: user.usuario,
-            usuario: user.usuario,
-            email: user.email,
-            foto_perfil: user.foto_perfil || null
-        });
-    } catch (err) {
-        res.status(500).json({ mensagem: 'Erro no login' });
-    }
+    const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      token,
+      nome: user.usuario,
+      email: user.email,
+      foto_perfil: user.foto_perfil || null
+    });
+  });
 });
 
-app.get('/api/usuario', autenticar, async (req, res) => {
-    try {
-        const { rows } = await pool.query(
-          'SELECT id, usuario as nome, email, foto_perfil FROM usuarios WHERE id = $1',
-          [req.usuario.id]
-        );
-        if (!rows[0]) return res.status(404).json({ mensagem: 'Usuário não encontrado' });
-        res.json(rows[0]);
-    } catch (err) {
-        res.status(500).json({ mensagem: 'Erro ao buscar usuário' });
-    }
+// BUSCAR DADOS DO USUARIO
+app.get('/api/usuario', autenticarToken, (req, res) => {
+  const sql = 'SELECT id, usuario, email, foto_perfil FROM usuarios WHERE id =?';
+  db.query(sql, [req.usuario.id], (err, results) => {
+    if (err) return res.status(500).json({ mensagem: 'Erro no servidor' });
+    if (results.length === 0) return res.status(404).json({ mensagem: 'Usuário não encontrado' });
+
+    const user = results[0];
+    res.json({
+      nome: user.usuario,
+      email: user.email,
+      foto_perfil: user.foto_perfil
+    });
+  });
 });
 
-app.put('/api/usuario', autenticar, async (req, res) => {
-    const userId = req.usuario.id;
-    const { usuario, email, senha } = req.body;
+// ATUALIZAR PERFIL
+app.put('/api/usuario', autenticarToken, upload.single('foto'), async (req, res) => {
+  const { usuario, email, senha } = req.body;
+  const userId = req.usuario.id;
 
-    if (!usuario ||!email) {
-        return res.status(400).json({ mensagem: 'Nome e email são obrigatórios' });
+  try {
+    let sql = 'UPDATE usuarios SET usuario =?, email =?';
+    let params = [usuario, email];
+
+    if (senha) {
+      const hash = await bcrypt.hash(senha, 10);
+      sql += ', senha =?';
+      params.push(hash);
     }
 
-    try {
-        let query = 'UPDATE usuarios SET usuario = $1, email = $2';
-        let params = [usuario, email];
-        let count = 3;
+    if (req.file) {
+      const base64 = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+      sql += ', foto_perfil =?';
+      params.push(base64);
+    }
 
-        if (senha) {
-            const hash = await bcrypt.hash(senha, 10);
-            query += `, senha = $${count}`;
-            params.push(hash);
-            count++;
+    sql += ' WHERE id =?';
+    params.push(userId);
+
+    db.query(sql, params, (err, result) => {
+      if (err) {
+        if (err.code === 'ER_DUP_ENTRY') {
+          return res.status(400).json({ mensagem: 'Email já em uso' });
         }
+        return res.status(500).json({ mensagem: 'Erro ao atualizar' });
+      }
 
-        query += ` WHERE id = $${count} RETURNING id, usuario as nome, email, foto_perfil`;
-        params.push(userId);
+      // Retorna foto nova se atualizou
+      if (req.file) {
+        const base64 = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+        return res.json({ mensagem: 'Perfil atualizado', foto_perfil: base64 });
+      }
 
-        const { rows } = await pool.query(query, params);
-        res.json(rows[0]);
-    } catch (err) {
-        res.status(500).json({ mensagem: 'Erro ao atualizar perfil' });
-    }
+      res.json({ mensagem: 'Perfil atualizado' });
+    });
+  } catch (err) {
+    res.status(500).json({ mensagem: 'Erro interno' });
+  }
 });
 
-app.get('/api/filmes', async (req, res) => {
-    try {
-        const { rows } = await pool.query('SELECT * FROM filmes ORDER BY id');
-        res.json(rows);
-    } catch (err) {
-        res.status(500).json({ mensagem: 'Erro ao buscar filmes' });
-    }
+// LISTAR FILMES
+app.get('/api/filmes', (req, res) => {
+  const sql = 'SELECT * FROM filmes ORDER BY id DESC';
+  db.query(sql, (err, results) => {
+    if (err) return res.status(500).json({ mensagem: 'Erro ao buscar filmes' });
+    res.json(results);
+  });
 });
 
-app.post('/api/favoritar', autenticar, async (req, res) => {
-    const { filme_id } = req.body;
-    const userId = req.usuario.id;
-    try {
-        await pool.query('INSERT INTO favoritos (usuario_id, filme_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [userId, filme_id]);
-        res.json({ mensagem: 'Favoritado com sucesso' });
-    } catch (err) {
-        res.status(500).json({ mensagem: 'Erro ao favoritar' });
-    }
+// LISTAR FAVORITOS
+app.get('/api/favoritos', autenticarToken, (req, res) => {
+  const sql = `
+    SELECT f.* FROM filmes f
+    INNER JOIN favoritos fav ON f.id = fav.filme_id
+    WHERE fav.usuario_id =?
+  `;
+  db.query(sql, [req.usuario.id], (err, results) => {
+    if (err) return res.status(500).json({ mensagem: 'Erro ao buscar favoritos' });
+    res.json(results);
+  });
 });
 
-app.delete('/api/favoritar/:filme_id', autenticar, async (req, res) => {
-    const { filme_id } = req.params;
-    const userId = req.usuario.id;
-    try {
-        await pool.query('DELETE FROM favoritos WHERE usuario_id = $1 AND filme_id = $2', [userId, filme_id]);
-        res.json({ mensagem: 'Removido dos favoritos' });
-    } catch (err) {
-        res.status(500).json({ mensagem: 'Erro ao desfavoritar' });
+// ADICIONAR FAVORITO
+app.post('/api/favoritar', autenticarToken, (req, res) => {
+  const { filme_id } = req.body;
+  const sql = 'INSERT INTO favoritos (usuario_id, filme_id) VALUES (?,?)';
+  db.query(sql, [req.usuario.id, filme_id], (err, result) => {
+    if (err) {
+      if (err.code === 'ER_DUP_ENTRY') {
+        return res.status(400).json({ mensagem: 'Já favoritado' });
+      }
+      return res.status(500).json({ mensagem: 'Erro ao favoritar' });
     }
+    res.status(201).json({ mensagem: 'Favoritado' });
+  });
 });
 
-app.get('/api/favoritos', autenticar, async (req, res) => {
-    const userId = req.usuario.id;
-    try {
-        const { rows } = await pool.query(`
-            SELECT f.* FROM filmes f
-            INNER JOIN favoritos fav ON f.id = fav.filme_id
-            WHERE fav.usuario_id = $1
-            ORDER BY fav.id DESC
-        `, [userId]);
-        res.json(rows);
-    } catch (err) {
-        res.status(500).json({ mensagem: 'Erro ao buscar favoritos' });
-    }
+// REMOVER FAVORITO
+app.delete('/api/favoritar/:id', autenticarToken, (req, res) => {
+  const filme_id = req.params.id;
+  const sql = 'DELETE FROM favoritos WHERE usuario_id =? AND filme_id =?';
+  db.query(sql, [req.usuario.id, filme_id], (err, result) => {
+    if (err) return res.status(500).json({ mensagem: 'Erro ao remover favorito' });
+    res.json({ mensagem: 'Removido dos favoritos' });
+  });
 });
 
 module.exports = app;
