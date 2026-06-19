@@ -11,6 +11,7 @@ const app = express();
 app.use(cors({
   origin: [
     'http://lisoflix-front.s3-website.us-east-2.amazonaws.com',
+    'https://lisoflix-front.s3-website.us-east-2.amazonaws.com', // adiciona essa linha
     'http://localhost:5500'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
