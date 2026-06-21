@@ -44,13 +44,13 @@ function autenticarToken(req, res, next) {
   });
 }
 
-// Teste - ERA /api, AGORA /
-app.get('/', (req, res) => {
+// Teste
+app.get('/api', (req, res) => {
   res.json({ status: 'API Lisoflix online' });
 });
 
-// CADASTRO - ERA /api/cadastro, AGORA /cadastro
-app.post('/cadastro', async (req, res) => {
+// CADASTRO
+app.post('/api/cadastro', async (req, res) => {
   const { usuario, email, senha } = req.body;
   if (!usuario ||!email ||!senha) {
     return res.status(400).json({ mensagem: 'Preencha todos os campos' });
@@ -62,8 +62,8 @@ app.post('/cadastro', async (req, res) => {
   try {
     const hash = await bcrypt.hash(senha, 10);
     const { error } = await supabase
-   .from('usuarios')
-   .insert([{ usuario, email, senha: hash }]);
+    .from('usuarios')
+    .insert([{ usuario, email, senha: hash }]);
 
     if (error) {
       if (error.code === '23505') {
@@ -77,18 +77,18 @@ app.post('/cadastro', async (req, res) => {
   }
 });
 
-// LOGIN - ERA /api/login, AGORA /login
-app.post('/login', async (req, res) => {
+// LOGIN
+app.post('/api/login', async (req, res) => {
   const { email, senha } = req.body;
   if (!email ||!senha) {
     return res.status(400).json({ mensagem: 'Preencha todos os campos' });
   }
 
   const { data: users, error } = await supabase
- .from('usuarios')
- .select('*')
- .eq('email', email)
- .limit(1);
+  .from('usuarios')
+  .select('*')
+  .eq('email', email)
+  .limit(1);
 
   if (error) return res.status(500).json({ mensagem: 'Erro no servidor' });
   if (users.length === 0) return res.status(401).json({ mensagem: 'Email ou senha incorretos' });
@@ -107,13 +107,13 @@ app.post('/login', async (req, res) => {
   });
 });
 
-// BUSCAR DADOS DO USUARIO - ERA /api/usuario, AGORA /usuario
-app.get('/usuario', autenticarToken, async (req, res) => {
+// BUSCAR DADOS DO USUARIO
+app.get('/api/usuario', autenticarToken, async (req, res) => {
   const { data: users, error } = await supabase
- .from('usuarios')
- .select('id, usuario, email, foto_perfil')
- .eq('id', req.usuario.id)
- .limit(1);
+  .from('usuarios')
+  .select('id, usuario, email, foto_perfil')
+  .eq('id', req.usuario.id)
+  .limit(1);
 
   if (error) return res.status(500).json({ mensagem: 'Erro no servidor' });
   if (users.length === 0) return res.status(404).json({ mensagem: 'Usuário não encontrado' });
@@ -126,8 +126,8 @@ app.get('/usuario', autenticarToken, async (req, res) => {
   });
 });
 
-// ATUALIZAR PERFIL - ERA /api/usuario, AGORA /usuario
-app.put('/usuario', autenticarToken, upload.single('foto'), async (req, res) => {
+// ATUALIZAR PERFIL
+app.put('/api/usuario', autenticarToken, upload.single('foto'), async (req, res) => {
   const { usuario, email, senha } = req.body;
   const userId = req.usuario.id;
 
@@ -143,9 +143,9 @@ app.put('/usuario', autenticarToken, upload.single('foto'), async (req, res) => 
     }
 
     const { error } = await supabase
-   .from('usuarios')
-   .update(updateData)
-   .eq('id', userId);
+    .from('usuarios')
+    .update(updateData)
+    .eq('id', userId);
 
     if (error) {
       if (error.code === '23505') {
@@ -163,34 +163,34 @@ app.put('/usuario', autenticarToken, upload.single('foto'), async (req, res) => 
   }
 });
 
-// LISTAR FILMES - ERA /api/filmes, AGORA /filmes
-app.get('/filmes', async (req, res) => {
+// LISTAR FILMES
+app.get('/api/filmes', async (req, res) => {
   const { data, error } = await supabase
- .from('filmes')
- .select('*')
- .order('id', { ascending: false });
+  .from('filmes')
+  .select('*')
+  .order('id', { ascending: false });
 
   if (error) return res.status(500).json({ mensagem: 'Erro ao buscar filmes' });
   res.json(data);
 });
 
-// LISTAR FAVORITOS - ERA /api/favoritos, AGORA /favoritos
-app.get('/favoritos', autenticarToken, async (req, res) => {
+// LISTAR FAVORITOS
+app.get('/api/favoritos', autenticarToken, async (req, res) => {
   const { data, error } = await supabase
- .from('favoritos')
- .select('filmes(*)')
- .eq('usuario_id', req.usuario.id);
+  .from('favoritos')
+  .select('filmes(*)')
+  .eq('usuario_id', req.usuario.id);
 
   if (error) return res.status(500).json({ mensagem: 'Erro ao buscar favoritos' });
   res.json(data.map(f => f.filmes));
 });
 
-// ADICIONAR FAVORITO - ERA /api/favoritar, AGORA /favoritar
-app.post('/favoritar', autenticarToken, async (req, res) => {
+// ADICIONAR FAVORITO
+app.post('/api/favoritar', autenticarToken, async (req, res) => {
   const { filme_id } = req.body;
   const { error } = await supabase
- .from('favoritos')
- .insert([{ usuario_id: req.usuario.id, filme_id }]);
+  .from('favoritos')
+  .insert([{ usuario_id: req.usuario.id, filme_id }]);
 
   if (error) {
     if (error.code === '23505') {
@@ -201,17 +201,28 @@ app.post('/favoritar', autenticarToken, async (req, res) => {
   res.status(201).json({ mensagem: 'Favoritado' });
 });
 
-// REMOVER FAVORITO - ERA /api/favoritar/:id, AGORA /favoritar/:id
-app.delete('/favoritar/:id', autenticarToken, async (req, res) => {
+// REMOVER FAVORITO
+app.delete('/api/favoritar/:id', autenticarToken, async (req, res) => {
   const filme_id = req.params.id;
   const { error } = await supabase
- .from('favoritos')
- .delete()
- .eq('usuario_id', req.usuario.id)
- .eq('filme_id', filme_id);
+  .from('favoritos')
+  .delete()
+  .eq('usuario_id', req.usuario.id)
+  .eq('filme_id', filme_id);
 
   if (error) return res.status(500).json({ mensagem: 'Erro ao remover favorito' });
   res.json({ mensagem: 'Removido dos favoritos' });
 });
+
+// Rota raiz redireciona pra /api
+app.get('/', (req, res) => {
+  res.json({ status: 'API Lisoflix online' });
+});
+
+// Necessário pra Vercel
+const PORT = process.env.PORT || 3000;
+if (process.env.NODE_ENV!== 'production') {
+  app.listen(PORT, () => console.log(`Rodando na porta ${PORT}`));
+}
 
 module.exports = app;
