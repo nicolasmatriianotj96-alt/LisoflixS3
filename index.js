@@ -66,14 +66,16 @@ app.post('/api/cadastro', async (req, res) => {
     .insert([{ usuario, email, senha: hash }]);
 
     if (error) {
+      console.log('Erro Supabase:', error); // Esse log vai pra Vercel
       if (error.code === '23505') {
         return res.status(400).json({ mensagem: 'Email já cadastrado' });
       }
-      return res.status(500).json({ mensagem: 'Erro ao cadastrar' });
+      return res.status(500).json({ mensagem: 'Erro ao cadastrar', detalhe: error.message });
     }
     res.status(201).json({ mensagem: 'Usuário cadastrado com sucesso' });
   } catch (err) {
-    res.status(500).json({ mensagem: 'Erro interno' });
+    console.log('Catch:', err); // Esse também
+    res.status(500).json({ mensagem: 'Erro interno', detalhe: err.message });
   }
 });
 
