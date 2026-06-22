@@ -221,6 +221,24 @@ app.get('/', (req, res) => {
   res.json({ status: 'API Lisoflix online' });
 });
 
+app.get('/api/usuario', autenticarToken, async (req, res) => {
+  try {
+    const { data: usuario, error } = await supabase
+      .from('usuarios')
+      .select('id, usuario, email, foto_perfil')
+      .eq('id', req.usuario.id)
+      .single();
+
+    if (error || !usuario) {
+      return res.status(404).json({ mensagem: 'Usuário não encontrado' });
+    }
+
+    res.json(usuario);
+  } catch (err) {
+    res.status(500).json({ mensagem: 'Erro no servidor' });
+  }
+});
+
 // Necessário pra Vercel
 const PORT = process.env.PORT || 3000;
 if (process.env.NODE_ENV!== 'production') {
