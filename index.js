@@ -5,7 +5,20 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 
 const app = express();
-app.use(cors());
+
+// CORS liberado pro teu S3
+app.use(cors({
+    origin: [
+        'http://lisoflix-front.s3-website.us-east-2.amazonaws.com',
+        'http://localhost:5500',
+        'http://127.0.0.1:5500'
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+}));
+
+app.options('*', cors());
 app.use(express.json());
 
 const supabase = createClient(
@@ -45,10 +58,10 @@ app.post('/api/cadastro', async (req, res) => {
         const senhaHash = await bcrypt.hash(senha, 10);
 
         const { data, error } = await supabase
-           .from('usuarios')
-           .insert([{ usuario, email, senha: senhaHash }])
-           .select()
-           .single();
+          .from('usuarios')
+          .insert([{ usuario, email, senha: senhaHash }])
+          .select()
+          .single();
 
         if (error) {
             if (error.code === '23505') {
@@ -76,10 +89,10 @@ app.post('/api/login', async (req, res) => {
         const { usuario, senha } = req.body;
 
         const { data, error } = await supabase
-           .from('usuarios')
-           .select('*')
-           .eq('usuario', usuario)
-           .single();
+          .from('usuarios')
+          .select('*')
+          .eq('usuario', usuario)
+          .single();
 
         if (error ||!data) {
             return res.status(401).json({ mensagem: 'Usuário ou senha inválidos' });
@@ -108,10 +121,10 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/usuario', autenticarToken, async (req, res) => {
     try {
         const { data, error } = await supabase
-           .from('usuarios')
-           .select('id, usuario, email')
-           .eq('id', req.usuario.id)
-           .single();
+          .from('usuarios')
+          .select('id, usuario, email')
+          .eq('id', req.usuario.id)
+          .single();
 
         if (error) {
             return res.status(400).json({ mensagem: error.message });
@@ -136,11 +149,11 @@ app.put('/api/usuario', autenticarToken, async (req, res) => {
         }
 
         const { data, error } = await supabase
-           .from('usuarios')
-           .update(dados)
-           .eq('id', userId)
-           .select('id, usuario, email')
-           .single();
+          .from('usuarios')
+          .update(dados)
+          .eq('id', userId)
+          .select('id, usuario, email')
+          .single();
 
         if (error) {
             if (error.code === '23505') {
@@ -158,17 +171,21 @@ app.put('/api/usuario', autenticarToken, async (req, res) => {
 // ROTA: Listar filmes
 app.get('/api/filmes', async (req, res) => {
     try {
+        console.log('Buscando filmes...');
         const { data, error } = await supabase
-           .from('filmes')
-           .select('*')
-           .order('titulo');
+          .from('filmes')
+          .select('*')
+          .order('titulo');
 
         if (error) {
+            console.log('Erro Supabase filmes:', error);
             return res.status(400).json({ mensagem: error.message });
         }
 
+        console.log('Filmes encontrados:', data.length);
         res.json(data);
     } catch (err) {
+        console.log('Erro geral filmes:', err);
         res.status(500).json({ mensagem: 'Erro interno' });
     }
 });
@@ -185,13 +202,12 @@ app.post('/api/favoritar', autenticarToken, async (req, res) => {
             return res.status(400).json({ mensagem: 'filme_id é obrigatório' });
         }
 
-        // Verifica se já existe
         const { data: existente, error: errorBusca } = await supabase
-           .from('favoritos')
-           .select('*')
-           .eq('usuario_id', userId)
-           .eq('filme_id', filme_id)
-           .maybeSingle();
+          .from('favoritos')
+          .select('*')
+          .eq('usuario_id', userId)
+          .eq('filme_id', filme_id)
+          .maybeSingle();
 
         if (errorBusca) {
             console.log('Erro buscar existente:', errorBusca);
@@ -202,11 +218,10 @@ app.post('/api/favoritar', autenticarToken, async (req, res) => {
             return res.status(200).json({ mensagem: 'Já favoritado' });
         }
 
-        // Insere novo favorito
         const { data, error } = await supabase
-           .from('favoritos')
-           .insert([{ usuario_id: userId, filme_id: filme_id }])
-           .select();
+          .from('favoritos')
+          .insert([{ usuario_id: userId, filme_id: filme_id }])
+          .select();
 
         if (error) {
             console.log('Erro Supabase favoritar:', error);
@@ -229,10 +244,10 @@ app.delete('/api/favoritar/:filme_id', autenticarToken, async (req, res) => {
         console.log('Desfavoritar - userId:', userId, 'filme_id:', filme_id);
 
         const { error } = await supabase
-           .from('favoritos')
-           .delete()
-           .eq('usuario_id', userId)
-           .eq('filme_id', filme_id);
+          .from('favoritos')
+          .delete()
+          .eq('usuario_id', userId)
+          .eq('filme_id', filme_id);
 
         if (error) {
             console.log('Erro Supabase desfavoritar:', error);
@@ -252,9 +267,9 @@ app.get('/api/favoritos', autenticarToken, async (req, res) => {
         const userId = req.usuario.id;
 
         const { data: favs, error } = await supabase
-           .from('favoritos')
-           .select('filme_id')
-           .eq('usuario_id', userId);
+          .from('favoritos')
+          .select('filme_id')
+          .eq('usuario_id', userId);
 
         if (error) {
             console.log('Erro buscar favoritos:', error);
@@ -268,9 +283,9 @@ app.get('/api/favoritos', autenticarToken, async (req, res) => {
         const ids = favs.map(f => f.filme_id);
 
         const { data: filmes, error: errorFilmes } = await supabase
-           .from('filmes')
-           .select('*')
-           .in('id', ids);
+          .from('filmes')
+          .select('*')
+          .in('id', ids);
 
         if (errorFilmes) {
             console.log('Erro buscar filmes favoritos:', errorFilmes);
