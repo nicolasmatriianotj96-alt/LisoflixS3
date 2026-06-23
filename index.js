@@ -67,8 +67,8 @@ app.post('/api/cadastro', async (req, res) => {
   try {
     const hash = await bcrypt.hash(senha, 10);
     const { error } = await supabase
-    .from('usuarios')
-    .insert([{ usuario, email, senha: hash }]);
+   .from('usuarios')
+   .insert([{ usuario, email, senha: hash }]);
 
     if (error) {
       console.log('Erro Supabase:', error);
@@ -91,10 +91,10 @@ app.post('/api/login', async (req, res) => {
   }
 
   const { data: users, error } = await supabase
-  .from('usuarios')
-  .select('*')
-  .eq('email', email)
-  .limit(1);
+ .from('usuarios')
+ .select('*')
+ .eq('email', email)
+ .limit(1);
 
   if (error) return res.status(500).json({ mensagem: 'Erro no servidor' });
   if (users.length === 0) return res.status(401).json({ mensagem: 'Email ou senha incorretos' });
@@ -116,10 +116,10 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/usuario', autenticarToken, async (req, res) => {
   try {
     const { data: usuario, error } = await supabase
-    .from('usuarios')
-    .select('id, usuario, email, foto_perfil')
-    .eq('id', req.usuario.id)
-    .single();
+   .from('usuarios')
+   .select('id, usuario, email, foto_perfil')
+   .eq('id', req.usuario.id)
+   .single();
 
     if (error ||!usuario) {
       return res.status(404).json({ mensagem: 'Usuário não encontrado' });
@@ -158,9 +158,9 @@ app.put('/api/usuario', autenticarToken, upload.single('foto'), async (req, res)
     }
 
     const { error } = await supabase
-    .from('usuarios')
-    .update(updateData)
-    .eq('id', userId);
+   .from('usuarios')
+   .update(updateData)
+   .eq('id', userId);
 
     if (error) {
       if (error.code === '23505') {
@@ -170,10 +170,10 @@ app.put('/api/usuario', autenticarToken, upload.single('foto'), async (req, res)
     }
 
     const { data: userAtualizado } = await supabase
-    .from('usuarios')
-    .select('usuario, email, foto_perfil')
-    .eq('id', userId)
-    .single();
+   .from('usuarios')
+   .select('usuario, email, foto_perfil')
+   .eq('id', userId)
+   .single();
 
     res.json({
       mensagem: 'Perfil atualizado',
@@ -189,48 +189,70 @@ app.put('/api/usuario', autenticarToken, upload.single('foto'), async (req, res)
 
 app.get('/api/filmes', async (req, res) => {
   const { data, error } = await supabase
-  .from('filmes')
-  .select('*')
-  .order('id', { ascending: false });
+ .from('filmes')
+ .select('*')
+ .order('id', { ascending: false });
 
   if (error) return res.status(500).json({ mensagem: 'Erro ao buscar filmes' });
   res.json(data);
 });
 
+// CORRIGIDO: FAVORITOS COM JOIN MELHOR
 app.get('/api/favoritos', autenticarToken, async (req, res) => {
   const { data, error } = await supabase
-  .from('favoritos')
-  .select('filmes(*)')
-  .eq('usuario_id', req.usuario.id);
-
-  if (error) return res.status(500).json({ mensagem: 'Erro ao buscar favoritos' });
-  res.json(data.map(f => f.filmes));
-});
-
-app.post('/api/favoritar', autenticarToken, async (req, res) => {
-  const { filme_id } = req.body;
-  const { error } = await supabase
-  .from('favoritos')
-  .insert([{ usuario_id: req.usuario.id, filme_id }]);
+ .from('favoritos')
+ .select('filme_id, filmes(*)')
+ .eq('usuario_id', req.usuario.id);
 
   if (error) {
+    console.log('Erro buscar favoritos:', error);
+    return res.status(500).json({ mensagem: 'Erro ao buscar favoritos' });
+  }
+
+  // Retorna só o objeto filme, não o wrapper
+  res.json(data.map(f => f.filmes).filter(Boolean));
+});
+
+// CORRIGIDO: CONVERTE filme_id PRA NÚMERO
+app.post('/api/favoritar', autenticarToken, async (req, res) => {
+  const filme_id = parseInt(req.body.filme_id); // FORÇA NÚMERO
+
+  if (isNaN(filme_id)) {
+    return res.status(400).json({ mensagem: 'ID do filme inválido' });
+  }
+
+  const { error } = await supabase
+ .from('favoritos')
+ .insert([{ usuario_id: req.usuario.id, filme_id }]);
+
+  if (error) {
+    console.log('Erro favoritar:', error);
     if (error.code === '23505') {
       return res.status(400).json({ mensagem: 'Já favoritado' });
     }
-    return res.status(500).json({ mensagem: 'Erro ao favoritar' });
+    return res.status(500).json({ mensagem: 'Erro ao favoritar', detalhe: error.message });
   }
   res.status(201).json({ mensagem: 'Favoritado' });
 });
 
+// CORRIGIDO: CONVERTE filme_id PRA NÚMERO
 app.delete('/api/favoritar/:id', autenticarToken, async (req, res) => {
-  const filme_id = req.params.id;
-  const { error } = await supabase
-  .from('favoritos')
-  .delete()
-  .eq('usuario_id', req.usuario.id)
-  .eq('filme_id', filme_id);
+  const filme_id = parseInt(req.params.id); // FORÇA NÚMERO
 
-  if (error) return res.status(500).json({ mensagem: 'Erro ao remover favorito' });
+  if (isNaN(filme_id)) {
+    return res.status(400).json({ mensagem: 'ID do filme inválido' });
+  }
+
+  const { error } = await supabase
+ .from('favoritos')
+ .delete()
+ .eq('usuario_id', req.usuario.id)
+ .eq('filme_id', filme_id);
+
+  if (error) {
+    console.log('Erro remover favorito:', error);
+    return res.status(500).json({ mensagem: 'Erro ao remover favorito' });
+  }
   res.json({ mensagem: 'Removido dos favoritos' });
 });
 
