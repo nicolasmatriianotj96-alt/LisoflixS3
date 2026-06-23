@@ -1,19 +1,17 @@
 const express = require('express');
-const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 
 const app = express();
 
-// MIDDLEWARE MANUAL DE CORS - COLA ISSO ANTES DE TUDO
+// MIDDLEWARE MANUAL DE CORS
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', 'http://lisoflix-front.s3-website.us-east-2.amazonaws.com');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
     res.header('Access-Control-Allow-Credentials', 'true');
 
-    // Responde OPTIONS direto
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
     }
@@ -51,27 +49,30 @@ function autenticarToken(req, res, next) {
 app.post('/api/cadastro', async (req, res) => {
     try {
         const { usuario, email, senha } = req.body;
+        console.log('Cadastro recebido:', usuario, email);
 
         if (!usuario ||!email ||!senha) {
             return res.status(400).json({ mensagem: 'Preencha todos os campos' });
         }
 
         const senhaHash = await bcrypt.hash(senha, 10);
+        console.log('Hash gerado:', senhaHash.substring(0, 20) + '...');
 
         const { data, error } = await supabase
-         .from('usuarios')
-         .insert([{ usuario, email, senha: senhaHash }])
-         .select()
-         .single();
+       .from('usuarios')
+       .insert([{ usuario, email, senha: senhaHash }])
+       .select()
+       .single();
 
         if (error) {
-            console.log('Erro cadastro:', error);
+            console.log('Erro cadastro Supabase:', error);
             if (error.code === '23505') {
                 return res.status(400).json({ mensagem: 'Usuário ou email já existe' });
             }
             return res.status(400).json({ mensagem: error.message });
         }
 
+        console.log('Usuario criado ID:', data.id);
         const token = jwt.sign({ id: data.id, usuario: data.usuario }, JWT_SECRET);
 
         res.status(201).json({
@@ -90,24 +91,36 @@ app.post('/api/cadastro', async (req, res) => {
 app.post('/api/login', async (req, res) => {
     try {
         const { usuario, senha } = req.body;
+        console.log('Tentativa login:', usuario);
 
         const { data, error } = await supabase
-         .from('usuarios')
-         .select('*')
-         .eq('usuario', usuario)
-         .single();
+       .from('usuarios')
+       .select('*')
+       .eq('usuario', usuario)
+       .single();
 
-        if (error ||!data) {
+        if (error) {
+            console.log('Erro buscar usuario:', error);
             return res.status(401).json({ mensagem: 'Usuário ou senha inválidos' });
         }
 
+        if (!data) {
+            console.log('Usuario não encontrado');
+            return res.status(401).json({ mensagem: 'Usuário ou senha inválidos' });
+        }
+
+        console.log('Usuario encontrado:', data.usuario);
+        console.log('Hash no banco:', data.senha.substring(0, 20) + '...');
+
         const senhaValida = await bcrypt.compare(senha, data.senha);
+        console.log('Resultado compare:', senhaValida);
 
         if (!senhaValida) {
             return res.status(401).json({ mensagem: 'Usuário ou senha inválidos' });
         }
 
         const token = jwt.sign({ id: data.id, usuario: data.usuario }, JWT_SECRET);
+        console.log('Token gerado com sucesso');
 
         res.json({
             mensagem: 'Login realizado',
@@ -125,10 +138,10 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/usuario', autenticarToken, async (req, res) => {
     try {
         const { data, error } = await supabase
-         .from('usuarios')
-         .select('id, usuario, email')
-         .eq('id', req.usuario.id)
-         .single();
+       .from('usuarios')
+       .select('id, usuario, email')
+       .eq('id', req.usuario.id)
+       .single();
 
         if (error) {
             console.log('Erro buscar usuario:', error);
@@ -155,11 +168,11 @@ app.put('/api/usuario', autenticarToken, async (req, res) => {
         }
 
         const { data, error } = await supabase
-         .from('usuarios')
-         .update(dados)
-         .eq('id', userId)
-         .select('id, usuario, email')
-         .single();
+       .from('usuarios')
+       .update(dados)
+       .eq('id', userId)
+       .select('id, usuario, email')
+       .single();
 
         if (error) {
             if (error.code === '23505') {
@@ -179,9 +192,9 @@ app.get('/api/filmes', async (req, res) => {
     try {
         console.log('Buscando filmes...');
         const { data, error } = await supabase
-         .from('filmes')
-         .select('*')
-         .order('titulo');
+       .from('filmes')
+       .select('*')
+       .order('titulo');
 
         if (error) {
             console.log('Erro Supabase filmes:', error);
@@ -209,11 +222,11 @@ app.post('/api/favoritar', autenticarToken, async (req, res) => {
         }
 
         const { data: existente, error: errorBusca } = await supabase
-         .from('favoritos')
-         .select('*')
-         .eq('usuario_id', userId)
-         .eq('filme_id', filme_id)
-         .maybeSingle();
+       .from('favoritos')
+       .select('*')
+       .eq('usuario_id', userId)
+       .eq('filme_id', filme_id)
+       .maybeSingle();
 
         if (errorBusca) {
             console.log('Erro buscar existente:', errorBusca);
@@ -225,9 +238,9 @@ app.post('/api/favoritar', autenticarToken, async (req, res) => {
         }
 
         const { data, error } = await supabase
-         .from('favoritos')
-         .insert([{ usuario_id: userId, filme_id: filme_id }])
-         .select();
+       .from('favoritos')
+       .insert([{ usuario_id: userId, filme_id: filme_id }])
+       .select();
 
         if (error) {
             console.log('Erro Supabase favoritar:', error);
@@ -248,10 +261,10 @@ app.delete('/api/favoritar/:filme_id', autenticarToken, async (req, res) => {
         const userId = req.usuario.id;
 
         const { error } = await supabase
-         .from('favoritos')
-         .delete()
-         .eq('usuario_id', userId)
-         .eq('filme_id', filme_id);
+       .from('favoritos')
+       .delete()
+       .eq('usuario_id', userId)
+       .eq('filme_id', filme_id);
 
         if (error) {
             console.log('Erro Supabase desfavoritar:', error);
@@ -270,9 +283,9 @@ app.get('/api/favoritos', autenticarToken, async (req, res) => {
         const userId = req.usuario.id;
 
         const { data: favs, error } = await supabase
-         .from('favoritos')
-         .select('filme_id')
-         .eq('usuario_id', userId);
+       .from('favoritos')
+       .select('filme_id')
+       .eq('usuario_id', userId);
 
         if (error) {
             console.log('Erro buscar favoritos:', error);
@@ -286,9 +299,9 @@ app.get('/api/favoritos', autenticarToken, async (req, res) => {
         const ids = favs.map(f => f.filme_id);
 
         const { data: filmes, error: errorFilmes } = await supabase
-         .from('filmes')
-         .select('*')
-         .in('id', ids);
+       .from('filmes')
+       .select('*')
+       .in('id', ids);
 
         if (errorFilmes) {
             console.log('Erro buscar filmes favoritos:', errorFilmes);
