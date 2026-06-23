@@ -1,268 +1,102 @@
-const express = require('express');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const multer = require('multer');
-const cors = require('cors');
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
-const { createClient } = require('@supabase/supabase-js');
-require('dotenv').config();
-
-const app = express();
-
-app.use(cors({
-  origin: [
-    'http://lisoflix-front.s3-website.us-east-2.amazonaws.com',
-    'https://lisoflix-front.s3-website.us-east-2.amazonaws.com',
-    'http://localhost:5500'
-  ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
-
-app.use(express.json());
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }
-});
-
-const s3 = new S3Client({
-  region: process.env.AWS_REGION,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  }
-});
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
-);
-
-function autenticarToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (!token) return res.status(401).json({ mensagem: 'Token não fornecido' });
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, usuario) => {
-    if (err) return res.status(403).json({ mensagem: 'Token inválido' });
-    req.usuario = usuario;
-    next();
-  });
-}
-
-app.get('/api', (req, res) => {
-  res.json({ status: 'API Lisoflix online' });
-});
-
-app.post('/api/cadastro', async (req, res) => {
-  const { usuario, email, senha } = req.body;
-  if (!usuario ||!email ||!senha) {
-    return res.status(400).json({ mensagem: 'Preencha todos os campos' });
-  }
-  if (senha.length < 8) {
-    return res.status(400).json({ mensagem: 'Senha precisa ter 8+ caracteres' });
-  }
-
-  try {
-    const hash = await bcrypt.hash(senha, 10);
-    const { error } = await supabase
-   .from('usuarios')
-   .insert([{ usuario, email, senha: hash }]);
-
-    if (error) {
-      console.log('Erro Supabase:', error);
-      if (error.code === '23505') {
-        return res.status(400).json({ mensagem: 'Email já cadastrado' });
-      }
-      return res.status(500).json({ mensagem: 'Erro ao cadastrar', detalhe: error.message });
-    }
-    res.status(201).json({ mensagem: 'Usuário cadastrado com sucesso' });
-  } catch (err) {
-    console.log('Catch:', err);
-    res.status(500).json({ mensagem: 'Erro interno', detalhe: err.message });
-  }
-});
-
-app.post('/api/login', async (req, res) => {
-  const { email, senha } = req.body;
-  if (!email ||!senha) {
-    return res.status(400).json({ mensagem: 'Preencha todos os campos' });
-  }
-
-  const { data: users, error } = await supabase
- .from('usuarios')
- .select('*')
- .eq('email', email)
- .limit(1);
-
-  if (error) return res.status(500).json({ mensagem: 'Erro no servidor' });
-  if (users.length === 0) return res.status(401).json({ mensagem: 'Email ou senha incorretos' });
-
-  const user = users[0];
-  const senhaValida = await bcrypt.compare(senha, user.senha);
-  if (!senhaValida) return res.status(401).json({ mensagem: 'Email ou senha incorretos' });
-
-  const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '7d' });
-
-  res.json({
-    token,
-    usuario: user.usuario,
-    email: user.email,
-    foto_perfil: user.foto_perfil || null
-  });
-});
-
-app.get('/api/usuario', autenticarToken, async (req, res) => {
-  try {
-    const { data: usuario, error } = await supabase
-   .from('usuarios')
-   .select('id, usuario, email, foto_perfil')
-   .eq('id', req.usuario.id)
-   .single();
-
-    if (error ||!usuario) {
-      return res.status(404).json({ mensagem: 'Usuário não encontrado' });
-    }
-
-    res.json(usuario);
-  } catch (err) {
-    res.status(500).json({ mensagem: 'Erro no servidor' });
-  }
-});
-
-app.put('/api/usuario', autenticarToken, upload.single('foto'), async (req, res) => {
-  const { usuario, email, senha } = req.body;
-  const userId = req.usuario.id;
-
-  try {
-    let updateData = { usuario, email };
-
-    if (senha) {
-      updateData.senha = await bcrypt.hash(senha, 10);
-    }
-
-    if (req.file) {
-      const fileName = `avatars/${userId}-${Date.now()}.${req.file.mimetype.split('/')[1]}`;
-
-      const command = new PutObjectCommand({
-        Bucket: process.env.AWS_BUCKET_NAME,
-        Key: fileName,
-        Body: req.file.buffer,
-        ContentType: req.file.mimetype
-      });
-
-      await s3.send(command);
-
-      updateData.foto_perfil = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
-    }
-
-    const { error } = await supabase
-   .from('usuarios')
-   .update(updateData)
-   .eq('id', userId);
-
-    if (error) {
-      if (error.code === '23505') {
-        return res.status(400).json({ mensagem: 'Email já em uso' });
-      }
-      return res.status(500).json({ mensagem: 'Erro ao atualizar' });
-    }
-
-    const { data: userAtualizado } = await supabase
-   .from('usuarios')
-   .select('usuario, email, foto_perfil')
-   .eq('id', userId)
-   .single();
-
-    res.json({
-      mensagem: 'Perfil atualizado',
-      usuario: userAtualizado.usuario,
-      email: userAtualizado.email,
-      foto_perfil: userAtualizado.foto_perfil
-    });
-  } catch (err) {
-    console.log('Erro upload:', err);
-    res.status(500).json({ mensagem: 'Erro interno' });
-  }
-});
-
-app.get('/api/filmes', async (req, res) => {
-  const { data, error } = await supabase
- .from('filmes')
- .select('*')
- .order('id', { ascending: false });
-
-  if (error) return res.status(500).json({ mensagem: 'Erro ao buscar filmes' });
-  res.json(data);
-});
-
-// CORRIGIDO: FAVORITOS COM JOIN MELHOR
-app.get('/api/favoritos', autenticarToken, async (req, res) => {
-  const { data, error } = await supabase
- .from('favoritos')
- .select('filme_id, filmes(*)')
- .eq('usuario_id', req.usuario.id);
-
-  if (error) {
-    console.log('Erro buscar favoritos:', error);
-    return res.status(500).json({ mensagem: 'Erro ao buscar favoritos' });
-  }
-
-  // Retorna só o objeto filme, não o wrapper
-  res.json(data.map(f => f.filmes).filter(Boolean));
-});
-
-// CORRIGIDO: CONVERTE filme_id PRA NÚMERO
 app.post('/api/favoritar', autenticarToken, async (req, res) => {
-  const filme_id = parseInt(req.body.filme_id); // FORÇA NÚMERO
+    try {
+        const { filme_id } = req.body;
+        const userId = req.usuario.id;
 
-  if (isNaN(filme_id)) {
-    return res.status(400).json({ mensagem: 'ID do filme inválido' });
-  }
+        console.log('Favoritar - userId:', userId, 'filme_id:', filme_id);
 
-  const { error } = await supabase
- .from('favoritos')
- .insert([{ usuario_id: req.usuario.id, filme_id }]);
+        if (!filme_id) {
+            return res.status(400).json({ mensagem: 'filme_id é obrigatório' });
+        }
 
-  if (error) {
-    console.log('Erro favoritar:', error);
-    if (error.code === '23505') {
-      return res.status(400).json({ mensagem: 'Já favoritado' });
+        // Verifica se já existe
+        const { data: existente } = await supabase
+            .from('favoritos')
+            .select('*')
+            .eq('usuario_id', userId)
+            .eq('filme_id', filme_id)
+            .single();
+
+        if (existente) {
+            return res.status(200).json({ mensagem: 'Já favoritado' });
+        }
+
+        // Insere novo favorito
+        const { data, error } = await supabase
+            .from('favoritos')
+            .insert([{ usuario_id: userId, filme_id: filme_id }])
+            .select();
+
+        if (error) {
+            console.log('Erro Supabase favoritar:', error);
+            return res.status(400).json({ mensagem: error.message });
+        }
+
+        res.status(201).json({ mensagem: 'Favoritado com sucesso', data });
+    } catch (err) {
+        console.log('Erro geral favoritar:', err);
+        res.status(500).json({ mensagem: 'Erro interno' });
     }
-    return res.status(500).json({ mensagem: 'Erro ao favoritar', detalhe: error.message });
-  }
-  res.status(201).json({ mensagem: 'Favoritado' });
 });
 
-// CORRIGIDO: CONVERTE filme_id PRA NÚMERO
-app.delete('/api/favoritar/:id', autenticarToken, async (req, res) => {
-  const filme_id = parseInt(req.params.id); // FORÇA NÚMERO
+app.delete('/api/favoritar/:filme_id', autenticarToken, async (req, res) => {
+    try {
+        const { filme_id } = req.params;
+        const userId = req.usuario.id;
 
-  if (isNaN(filme_id)) {
-    return res.status(400).json({ mensagem: 'ID do filme inválido' });
-  }
+        console.log('Desfavoritar - userId:', userId, 'filme_id:', filme_id);
 
-  const { error } = await supabase
- .from('favoritos')
- .delete()
- .eq('usuario_id', req.usuario.id)
- .eq('filme_id', filme_id);
+        const { error } = await supabase
+            .from('favoritos')
+            .delete()
+            .eq('usuario_id', userId)
+            .eq('filme_id', filme_id);
 
-  if (error) {
-    console.log('Erro remover favorito:', error);
-    return res.status(500).json({ mensagem: 'Erro ao remover favorito' });
-  }
-  res.json({ mensagem: 'Removido dos favoritos' });
+        if (error) {
+            console.log('Erro Supabase desfavoritar:', error);
+            return res.status(400).json({ mensagem: error.message });
+        }
+
+        res.json({ mensagem: 'Removido dos favoritos' });
+    } catch (err) {
+        console.log('Erro geral desfavoritar:', err);
+        res.status(500).json({ mensagem: 'Erro interno' });
+    }
 });
 
-app.get('/', (req, res) => {
-  res.json({ status: 'API Lisoflix online' });
+app.get('/api/favoritos', autenticarToken, async (req, res) => {
+    try {
+        const userId = req.usuario.id;
+
+        const { data: favs, error } = await supabase
+            .from('favoritos')
+            .select('filme_id')
+            .eq('usuario_id', userId);
+
+        if (error) {
+            console.log('Erro buscar favoritos:', error);
+            return res.status(400).json({ mensagem: error.message });
+        }
+
+        if (!favs || favs.length === 0) {
+            return res.json([]);
+        }
+
+        const ids = favs.map(f => f.filme_id);
+
+        const { data: filmes, error: errorFilmes } = await supabase
+            .from('filmes')
+            .select('*')
+            .in('id', ids);
+
+        if (errorFilmes) {
+            console.log('Erro buscar filmes favoritos:', errorFilmes);
+            return res.status(400).json({ mensagem: errorFilmes.message });
+        }
+
+        res.json(filmes);
+    } catch (err) {
+        console.log('Erro geral favoritos:', err);
+        res.status(500).json({ mensagem: 'Erro interno' });
+    }
 });
-
-const PORT = process.env.PORT || 3000;
-if (process.env.NODE_ENV!== 'production') {
-  app.listen(PORT, () => console.log(`Rodando na porta ${PORT}`));
-}
-
-module.exports = app;
