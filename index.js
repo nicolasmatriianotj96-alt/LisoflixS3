@@ -90,13 +90,13 @@ app.post('/api/cadastro', async (req, res) => {
 // ROTA: Login
 app.post('/api/login', async (req, res) => {
     try {
-        const { usuario, senha } = req.body;
+        const { email, senha } = req.body;
         console.log('Tentativa login:', usuario);
 
         const { data, error } = await supabase
        .from('usuarios')
        .select('*')
-       .eq('usuario', usuario)
+       .eq('email', email)
        .single();
 
         if (error) {
