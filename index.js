@@ -90,49 +90,38 @@ app.post('/api/cadastro', async (req, res) => {
 // ROTA: Login
 app.post('/api/login', async (req, res) => {
     try {
-        const { email, senha } = req.body;
-        console.log('Tentativa login:', usuario);
+        const { email, senha } = req.body  // ← email
+        console.log('Tentativa login:', email)
 
         const { data, error } = await supabase
-       .from('usuarios')
-       .select('*')
-       .eq('email', email)
-       .single();
+            .from('usuarios')
+            .select('*')
+            .eq('email', email)  // ← busca por email
+            .single()
 
-        if (error) {
-            console.log('Erro buscar usuario:', error);
-            return res.status(401).json({ mensagem: 'Usuário ou senha inválidos' });
+        if (error || !data) {
+            return res.status(401).json({ mensagem: 'Usuário ou senha inválidos' })
         }
 
-        if (!data) {
-            console.log('Usuario não encontrado');
-            return res.status(401).json({ mensagem: 'Usuário ou senha inválidos' });
-        }
-
-        console.log('Usuario encontrado:', data.usuario);
-        console.log('Hash no banco:', data.senha.substring(0, 20) + '...');
-
-        const senhaValida = await bcrypt.compare(senha, data.senha);
-        console.log('Resultado compare:', senhaValida);
+        const senhaValida = await bcrypt.compare(senha, data.senha)
 
         if (!senhaValida) {
-            return res.status(401).json({ mensagem: 'Usuário ou senha inválidos' });
+            return res.status(401).json({ mensagem: 'Usuário ou senha inválidos' })
         }
 
-        const token = jwt.sign({ id: data.id, usuario: data.usuario }, JWT_SECRET);
-        console.log('Token gerado com sucesso');
+        const token = jwt.sign({ id: data.id, usuario: data.usuario }, JWT_SECRET)
 
         res.json({
             mensagem: 'Login realizado',
             token,
-            usuario: data.usuario,
+            usuario: data.usuario,  // ← vem do banco, não do req.body
             email: data.email
-        });
+        })
     } catch (err) {
-        console.log('Erro geral login:', err);
-        res.status(500).json({ mensagem: 'Erro interno' });
+        console.log('Erro geral login:', err)
+        res.status(500).json({ mensagem: 'Erro interno' })
     }
-});
+})
 
 // ROTA: Buscar dados do usuário
 app.get('/api/usuario', autenticarToken, async (req, res) => {
