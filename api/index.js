@@ -4,6 +4,14 @@ import bcrypt from 'bcryptjs';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
+const getBody = async (req) => {
+    return new Promise((resolve) => {
+        let body = '';
+        req.on('data', chunk => body += chunk.toString());
+        req.on('end', () => resolve(JSON.parse(body || '{}')));
+    });
+}
+
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
@@ -11,11 +19,12 @@ export default async function handler(req, res) {
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     const { pathname } = new URL(req.url, `https://x.com`);
+    const body = await getBody(req);
 
     try {
         // ROTA CADASTRO
         if (pathname === '/api/cadastro' && req.method === 'POST') {
-            const { usuario, email, senha } = req.body;
+            const { usuario, email, senha } = body;
             if (!usuario ||!email ||!senha) return res.status(400).json({ mensagem: 'Preencha todos os campos' });
 
             const senhaHash = await bcrypt.hash(senha, 10);
@@ -30,7 +39,7 @@ export default async function handler(req, res) {
 
         // ROTA LOGIN
         if (pathname === '/api/login' && req.method === 'POST') {
-            const { email, senha } = req.body;
+            const { email, senha } = body;
             if (!email ||!senha) return res.status(400).json({ mensagem: 'Preencha email e senha' });
 
             const { data: usuario, error } = await supabase.from('usuarios').select('*').eq('email', email).single();
@@ -40,7 +49,7 @@ export default async function handler(req, res) {
             if (!senhaValida) return res.status(401).json({ mensagem: 'Email ou senha inválidos' });
 
             const token = jwt.sign({ id: usuario.id, usuario: usuario.usuario }, process.env.JWT_SECRET, { expiresIn: '7d' });
-            return res.status(200).json({ mensagem: 'Login realizado', token, usuario: usuario.usuario, email: usuario.email });
+            return res.status(200).json({ mensagem: 'Login realizado', token, usuario: usuario.usuario });
         }
 
         return res.status(404).json({ mensagem: 'Rota não encontrada' });
