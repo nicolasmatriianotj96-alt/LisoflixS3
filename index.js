@@ -20,7 +20,7 @@ export default async function handler(req, res) {
     const url = req.url;
 
     // LOGIN
-    if (url.includes('/api/login') && req.method === 'POST') {
+    if (url === '/api/login' && req.method === 'POST') {
         const { email, senha } = body;
         if (!email ||!senha) return res.status(400).json({ mensagem: 'Preencha email e senha' });
         
@@ -35,7 +35,7 @@ export default async function handler(req, res) {
     }
 
     // CADASTRO
-    if (url.includes('/api/cadastro') && req.method === 'POST') {
+    if (url === '/api/cadastro' && req.method === 'POST') {
         const { usuario, email, senha } = body;
         if (!usuario ||!email ||!senha) return res.status(400).json({ mensagem: 'Preencha todos os campos' });
         const senhaHash = await bcrypt.hash(senha, 10);
@@ -44,5 +44,5 @@ export default async function handler(req, res) {
         return res.status(201).json({ mensagem: 'Usuário criado com sucesso' });
     }
 
-    return res.status(404).json({ mensagem: 'Rota não encontrada' });
+    return res.status(200).json({ status: "Backend OK" });
 }
