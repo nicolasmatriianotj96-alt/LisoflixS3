@@ -21,8 +21,8 @@ app.use((req, res, next) => {
 app.use(express.json());
 
 const supabase = createClient(
-    'https://hfkfqlxrkmwomfzfjnlf.supabase.co',
-    'sb_publishable_V2ukjJGSRTJHVCfIgXZJmg_ElRJJQCQ'
+    'https://yvnkpxlfezzrohgacizw.supabase.co',
+    'sb_publishable_oAjHmwSHQ_hyeHlz9a63EQ_MBgonUQ4'
 );
 
 const JWT_SECRET = 'lisoflix2026seguro';
