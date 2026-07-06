@@ -15,7 +15,10 @@ export default async function handler(req, res) {
         .select('*')
         .order('id', { ascending: true });
 
-    if (error) return res.status(500).json({ mensagem: error.message });
+    if (error) {
+        console.log('ERRO SUPABASE:', error); // VAI APARECER NO LOG DA VERCEL
+        return res.status(500).json({ mensagem: error.message });
+    }
 
     return res.status(200).json(filmes);
 }
