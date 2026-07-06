@@ -22,12 +22,20 @@ export default async function handler(req, res) {
     const { email, senha } = body;
     if (!email ||!senha) return res.status(400).json({ mensagem: 'Preencha email e senha' });
     
-    const { data: usuario } = await supabase.from('usuarios').select('*').eq('email', email).single();
-    if (!usuario) return res.status(401).json({ mensagem: 'Email ou senha inválidos' });
+    const { data: usuario, error } = await supabase.from('usuarios').select('*').eq('email', email).single();
+    if (error || !usuario) return res.status(401).json({ mensagem: 'Email ou senha inválidos' });
     
     const senhaValida = await bcrypt.compare(senha, usuario.senha);
     if (!senhaValida) return res.status(401).json({ mensagem: 'Email ou senha inválidos' });
     
     const token = jwt.sign({ id: usuario.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    return res.status(200).json({ mensagem: 'Login realizado', token });
+    
+    // MUDANÇA AQUI: Devolve os dados do user
+    return res.status(200).json({ 
+        mensagem: 'Login realizado', 
+        token,
+        usuario: usuario.usuario,
+        email: usuario.email,
+        foto_perfil: usuario.foto_perfil || null
+    });
 }
