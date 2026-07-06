@@ -1,7 +1,10 @@
 {
-  "functions": {
-    "api/index.js": {
-      "runtime": "nodejs20.x"
-    }
+  "name": "lisoflix-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.3"
   }
 }
