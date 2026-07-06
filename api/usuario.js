@@ -5,11 +5,16 @@ import bcrypt from 'bcryptjs';
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 export default async function handler(req, res) {
+    // CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    if (req.method === 'OPTIONS') return res.status(200).end();
 
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+
+    // 1. PEGAR TOKEN
     const auth = req.headers.authorization;
     if (!auth) return res.status(401).json({ mensagem: 'Token não enviado' });
 
@@ -22,6 +27,7 @@ export default async function handler(req, res) {
         return res.status(401).json({ mensagem: 'Token inválido' });
     }
 
+    // 2. GET - BUSCAR USUARIO
     if (req.method === 'GET') {
         const { data: usuario, error } = await supabase
           .from('usuarios')
@@ -33,17 +39,11 @@ export default async function handler(req, res) {
         return res.status(200).json(usuario);
     }
 
+    // 3. PUT - ATUALIZAR USUARIO
     if (req.method === 'PUT') {
-        let body = {};
-        try {
-            const chunks = [];
-            for await (const chunk of req) chunks.push(chunk);
-            body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
-        } catch(e){}
+        const { usuario, email, senha } = req.body; // VERCEL JÁ FAZ O PARSE
 
-        const { usuario, email, senha } = body;
         const updateData = { usuario, email };
-
         if (senha) {
             updateData.senha = await bcrypt.hash(senha, 10);
         }
@@ -59,5 +59,5 @@ export default async function handler(req, res) {
         return res.status(200).json(data);
     }
 
-    return res.status(405).end();
+    return res.status(405).json({ mensagem: 'Método não permitido' });
 }
