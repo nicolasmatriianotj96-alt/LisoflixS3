@@ -20,15 +20,15 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js'
+
+console.log("URL:", process.env.SUPABASE_URL);
+console.log("KEY:", process.env.SUPABASE_KEY);
 
 const supabase = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_KEY
 );
-
-console.log("URL:", process.env.SUPABASE_URL)
-console.log("KEY:", process.env.SUPABASE_KEY ? "OK" : "VAZIA")
 
 const JWT_SECRET = 'lisoflix2026seguro';
 
