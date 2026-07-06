@@ -17,10 +17,8 @@ export default async function handler(req, res) {
         body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
     } catch(e){}
 
-    const url = req.url;
-
     // LOGIN
-    if (url === '/api/login' && req.method === 'POST') {
+    if (req.url === '/api/index' && req.method === 'POST') { // <- mudou aqui
         const { email, senha } = body;
         if (!email ||!senha) return res.status(400).json({ mensagem: 'Preencha email e senha' });
         
@@ -35,7 +33,7 @@ export default async function handler(req, res) {
     }
 
     // CADASTRO
-    if (url === '/api/cadastro' && req.method === 'POST') {
+    if (req.url === '/api/index' && req.method === 'POST') { // <- e aqui
         const { usuario, email, senha } = body;
         if (!usuario ||!email ||!senha) return res.status(400).json({ mensagem: 'Preencha todos os campos' });
         const senhaHash = await bcrypt.hash(senha, 10);
