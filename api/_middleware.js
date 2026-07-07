@@ -1,15 +1,12 @@
-import { NextResponse } from 'next/server';
-
-export function middleware(req) {
-  const res = NextResponse.next();
-  
-  res.headers.set('Access-Control-Allow-Origin', '*');
-  res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
+export default function middleware(req) {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers: res.headers });
+    return new Response(null, {
+      status: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      },
+    });
   }
-  
-  return res;
 }

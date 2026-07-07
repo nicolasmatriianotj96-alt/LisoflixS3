@@ -11,30 +11,32 @@ export default async function handler(req, res) {
     if (req.method === 'OPTIONS') return res.status(200).end();
     if (req.method!== 'POST') return res.status(405).end();
 
-    const auth = req.headers.authorization;
-    if (!auth) return res.status(401).json({ mensagem: 'Token não enviado' });
-
-    const token = auth.split(' ')[1];
-    let userId;
     try {
+        const auth = req.headers.authorization;
+        const token = auth.split(' ')[1];
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        userId = decoded.id;
-    } catch {
-        return res.status(401).json({ mensagem: 'Token inválido' });
-    }
+        const userId = decoded.id;
+        const { filme_id } = req.body;
 
-    const { filme_id } = req.body;
+        // Verifica se já existe
+        const { data: existe } = await supabase
+           .from('favoritos')
+           .select('id')
+           .eq('usuario_id', userId)
+           .eq('filme_id', filme_id)
+           .single();
 
-    // Verifica se já é favorito
-    const { data: existe } = await supabase.from('favoritos').select('id').eq('usuario_id', userId).eq('filme_id', filme_id).single();
+        if (existe) {
+            // Se existe, REMOVE
+            await supabase.from('favoritos').delete().eq('id', existe.id);
+            return res.status(200).json({ mensagem: 'Removido dos favoritos' });
+        } else {
+            // Se não existe, ADICIONA
+            await supabase.from('favoritos').insert([{ usuario_id: userId, filme_id }]);
+            return res.status(200).json({ mensagem: 'Adicionado aos favoritos' });
+        }
 
-    if (existe) {
-        // Remove dos favoritos
-        await supabase.from('favoritos').delete().eq('id', existe.id);
-        return res.status(200).json({ mensagem: 'Removido dos favoritos' });
-    } else {
-        // Adiciona aos favoritos
-        await supabase.from('favoritos').insert([{ usuario_id: userId, filme_id }]);
-        return res.status(201).json({ mensagem: 'Adicionado aos favoritos' });
+    } catch (e) {
+        return res.status(500).json({ mensagem: e.message });
     }
 }
