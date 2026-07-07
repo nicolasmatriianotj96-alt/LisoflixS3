@@ -15,16 +15,19 @@ export default async function handler(req, res) {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const userId = decoded.id;
 
-        if (req.method === 'GET') {
-            const { data: usuario, error } = await supabase
-               .from('usuarios')
-               .select('id, nome, email, foto_perfil')
-               .eq('id', userId)
-               .single();
+        const { data: usuario, error } = await supabase
+   .from('usuarios')
+   .select('id, name, email, foto_perfil') // era nome
+   .eq('id', userId)
+   .single();
 
-            if (error) throw error;
-            return res.status(200).json(usuario);
-        }
+// Traduz pra "nome" pro front
+return res.status(200).json({
+    id: usuario.id,
+    nome: usuario.name, // aqui
+    email: usuario.email,
+    foto_perfil: usuario.foto_perfil
+});
 
         if (req.method === 'PUT') {
             const { nome, email, senha } = req.body;
